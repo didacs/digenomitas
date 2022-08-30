@@ -33,6 +33,9 @@ object IdentifyCutSites {
    * when accumulating reads for identifying cut sites. */
   val DefaultMaxClippedLengthDifference: Int = 5
 
+  /** The maximum mismatch rate between the read's 5' clipped bases and the expected sequence after alignment. */
+  val DefaultMaxClippedMismatchRate: Double = 0.05
+
   /**
     * Simple case class to encapsulate all the parameters and filters used when building/filtering cut sites
     * from simple counts.
@@ -120,6 +123,8 @@ object IdentifyCutSites {
    *                               given sequences
    *  @param maxClippedLengthDifference The maximum length difference between the 5' clipped bases and a given start
    *                                    sequence.
+   *  @param maxClippedMismatchRate The maximum mismatch rate allows in the alignment of expected clipped start
+   *                                 sequences to the start of the read.
     */
   class CutSiteAccumulator(val sample: String,
                            val chrom: String,
@@ -128,7 +133,8 @@ object IdentifyCutSites {
                            val minMapQ: Int,
                            val ref: ReferenceSequenceFile,
                            val clippedStartSequences: Seq[String] = DefaultClippedSequences,
-                           val maxClippedLengthDifference: Int = DefaultMaxClippedLengthDifference) {
+                           val maxClippedLengthDifference: Int = DefaultMaxClippedLengthDifference,
+                           val maxClippedMismatchRate: Double = DefaultMaxClippedMismatchRate) {
     private val length: Int = end - start + 1
     private val aligner = new Aligner(ref)
 
@@ -197,30 +203,15 @@ object IdentifyCutSites {
 
         // TODO: can warn about hard-clipping
         // TODO: allow for mismatches in the clipped sequence, and potentially gaps
-        val fivePrimeElem                 = if (rec.positiveStrand) rec.cigar.head else rec.cigar.last
-        val fivePrimeClipped              = fivePrimeElem.operator.isClipping
+        val fivePrimeElem    = if (rec.positiveStrand) rec.cigar.head else rec.cigar.last
+        val fivePrimeClipped = fivePrimeElem.operator.isClipping
         // Will be true if there is 5' soft-clipping and the start of the read matches to
         // one of the expected sequences.
         val fivePrimeMatchesExpectedSequence = {
-          if (!fivePrimeClipped) false
+          if (!fivePrimeElem.operator.isClipping) false
           else if (clippedStartSequences.isEmpty || fivePrimeElem.operator == CigarOperator.HARD_CLIP) false
           else if (this.clippedStartSequences.forall(s => Math.abs(s.length - fivePrimeElem.length) > maxClippedLengthDifference)) false // clipping difference is too large
-          else {
-            // Get the full set of bases
-            val recBases = if (rec.positiveStrand) rec.basesString else Sequences.revcomp(rec.basesString)
-            // Return true if the record's bases starts with an allowed sequence.  Update the read to add clipping
-            this.clippedStartSequences.find { clippedStartSequence =>
-              Math.abs(clippedStartSequence.length - fivePrimeElem.length) <= maxClippedLengthDifference &&
-                recBases.startsWith(clippedStartSequence)
-            }.exists { clippedStartSequence =>
-                // If the read is found to have clipping and match an expected start sequence, then
-                // make sure we clip at least as long as the expected start sequence, to aid in identifying
-                // reads whose alignment start at the same genomic position.
-                val extraToClip = clippedStartSequence.length - fivePrimeElem.length
-                if (0 < extraToClip) clipper.clip5PrimeEndOfAlignment(rec, extraToClip)
-                true
-            }
-          }
+          else hasExpectedClippedSequenceAndUpdate(rec)
         }
 
         // Count the read coverage appropriately
@@ -247,6 +238,90 @@ object IdentifyCutSites {
             if (fivePrimeMatchesExpectedSequence) incrementReverseClippedStarts(rec.end)
           }
         }
+    }
+
+    /** Counts the number of mismatches between two sequences of at least the given length.  Considers only the first
+     * `length` bases. */
+    private def countMismatches(s1: String, s2: String, s1Offset: Int, s2Offset: Int, length: Int): Int = {
+      require(s1.length - s1Offset >= length && s2.length - s2Offset >= length)
+      var count = 0
+      forloop (from=0, until=length) { i =>
+        val a = Character.toUpperCase(s1.charAt(i + s1Offset))
+        val b = Character.toUpperCase(s2.charAt(i + s2Offset))
+        if (a != b) count += 1
+      }
+      count
+    }
+
+    /** Little helper class for `alignClippedStart` */
+    private case class ClippedAlignment(numQueryClippedBases: Int, mismatchRate: Double, alignmentLength: Int)
+
+    /** Aligns the query and target (ungapped).
+     *
+     * Allows the alignment to start up to `maxClippedLengthDifference` bases into the query, for example if shearing or
+     * other processes nibbled away a few bases.
+     *
+     * Allows the alignment to start up to `maxClippedLengthDifference` bases into the target, for example if end-repair
+     * or A-base addition added a few bases.
+     *
+     * The end of the alignment in the read must not be too far from the original start of clipping in the read.  Also,
+     * the returned alignment must have mismatch rate less than or equal to the maximum
+     *
+     * Returns [[None]] if no alignment is found, otherwise the number of clipped bases implied by the alignment with
+     * the lowest mismatch rate (or longest in case two alignments have the same rate).
+     */
+    private[digenome] def alignClippedStart(query: String, target: String, queryClippedLength: Int): Option[Int] = {
+      var best: Option[ClippedAlignment] = None
+      forloop(from=0, until=maxClippedLengthDifference + 1) { queryOffset =>
+        forloop(from=0, until=maxClippedLengthDifference + 1) { targetOffset =>
+          // the number of bases to align
+          val alignmentLength = target.length - targetOffset
+          // the number of clipped _query_ bases implied by aligning (ungapped) the query at the given offset to the
+          // target at the given offset
+          val numQueryClippedBases = queryOffset + target.length - targetOffset
+          // the difference in old and new clipped lengths
+          val clippedLengthDifference = Math.abs(numQueryClippedBases - queryClippedLength)
+          // only align if the new clipping point is not too far away from the current clipping point, and there are
+          // enough query bases to align
+          if (clippedLengthDifference <= maxClippedLengthDifference && query.length - queryOffset >= alignmentLength) {
+            // Align the query at the given offset to the target at the given offset
+            val mismatches   = countMismatches(query, target, queryOffset, targetOffset, alignmentLength)
+            val mismatchRate = mismatches / alignmentLength.toDouble
+            if (mismatchRate <= maxClippedMismatchRate &&
+              best.forall(b => mismatchRate < b.mismatchRate || (b.mismatchRate == mismatchRate && alignmentLength > b.alignmentLength))) {
+              best = Some(ClippedAlignment(
+                numQueryClippedBases = numQueryClippedBases,
+                mismatchRate         = mismatchRate,
+                alignmentLength      = alignmentLength
+              ))
+            }
+          }
+        }
+      }
+
+      best.map(_.numQueryClippedBases)
+    }
+
+    /** Returns true if the record has the expected clipped sequence on the 5' end of the read (in sequencing
+     * order), false otherwise.  If true, the record is updated in-place to ensure that the amount of 5' clipping
+     * is at least the length of the expected clipped sequence. */
+    private def hasExpectedClippedSequenceAndUpdate(rec: SamRecord): Boolean = {
+      val fivePrimeElem = if (rec.positiveStrand) rec.cigar.head else rec.cigar.last
+
+      // Get the full set of bases
+      val recBases = if (rec.positiveStrand) rec.basesString else Sequences.revcomp(rec.basesString)
+
+      // Return true if the record's bases starts with an allowed sequence.  Update the read to add clipping
+      this.clippedStartSequences.flatMap { clippedStartSequence =>
+        alignClippedStart(query=recBases, target=clippedStartSequence, queryClippedLength=fivePrimeElem.length)
+      }.headOption.exists { numQueryClippedBases =>
+        // If the read is found to have clipping and match an expected start sequence, then
+        // make sure we clip at least as long as the expected start sequence, to aid in identifying
+        // reads whose alignment start at the same genomic position.
+        val extraToClip = numQueryClippedBases - fivePrimeElem.length
+        if (0 < extraToClip) clipper.clip5PrimeEndOfAlignment(rec, extraToClip)
+        true
+      }
     }
 
     /** Synonym for accumulate(). */
@@ -546,6 +621,12 @@ object IdentifyCutSites {
     |`--max-clipped-length-difference` option controls the maximum differences in clipped bases reported in the
     |alignment versus the length of the given sequence being compared.  This comes from the intuition that the amount
     |of bases clipped should be approximately the length of the given sequence compared.
+    |
+    |The alignment of the expected start sequence to the start of the read allows for the read to start up to
+    |`--max-clipped-length-difference` _into_ the expected sequence (e.g. if shearing or other processes nibbled away a
+    |few bases).  It also allows the read to have up to `--max-clipped-length-difference`` _extra_ bases at the start
+    |(e.g. what if end-repair or A-base addition added in a base or two).  Finally, the `--max-clipped-mismatch-rate`
+    |specifies the maximum mismatch rate in the alignment to allow.
   """)
 class IdentifyCutSites
 ( @arg(flag='i', doc="One or more input BAM files of aligned digenome-sequencing data.") val input: Seq[PathToBam],
@@ -572,7 +653,9 @@ class IdentifyCutSites
   val clippedStartSequences: Seq[String] = IdentifyCutSites.DefaultClippedSequences,
   @arg(flag='L', doc="Maximum allowed length difference between clipped bases and the given sequences with `--clipped-start-sequences`")
   val maxClippedLengthDifference: Int = IdentifyCutSites.DefaultMaxClippedLengthDifference,
-  @arg(doc="Output all sites that any read with a match a clipped start sequence") val outputAllWithClippedSupport: Boolean = false
+  @arg(doc="Output all sites that any read with a match a clipped start sequence") val outputAllWithClippedSupport: Boolean = false,
+  @arg(doc="The maximum mismatch rate in the alignment of an expected clipped start sequence and the start of the read")
+  val maxClippedMismatchRate: Double = IdentifyCutSites.DefaultMaxClippedMismatchRate
 ) extends EditasTool {
   import IdentifyCutSites._
 
@@ -662,7 +745,8 @@ class IdentifyCutSites
         minMapQ                    = this.minMapQ,
         ref                        = ref,
         clippedStartSequences      = clippedStartSequences,
-        maxClippedLengthDifference = maxClippedLengthDifference
+        maxClippedLengthDifference = maxClippedLengthDifference,
+        maxClippedMismatchRate            = maxClippedMismatchRate
       )
 
       // Now iterate over the reads in the region

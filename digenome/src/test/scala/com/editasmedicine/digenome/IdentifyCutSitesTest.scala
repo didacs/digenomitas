@@ -11,10 +11,11 @@ import com.fulcrumgenomics.testing.SamBuilder.{Minus, Plus}
 import com.fulcrumgenomics.util.Metric
 import htsjdk.samtools.reference.ReferenceSequenceFileFactory
 import htsjdk.samtools.util.Interval
+import org.scalatest.OptionValues
 
 import scala.util.Random
 
-class IdentifyCutSitesTest extends UnitSpec {
+class IdentifyCutSitesTest extends UnitSpec with OptionValues {
   /** A set of default parameters/filters for calling cut sites, which can be adjusted easliy using `copy()`. */
   private val DefaultParams = CutSiteParams(
     readLength            = 100,
@@ -482,6 +483,86 @@ class IdentifyCutSitesTest extends UnitSpec {
           cut.reverse_starts        shouldBe (8 + (8*2*offset))
       }
     }
+  }
+
+  "CutSiteAccumulator.alignClippedStart" should "not find a match if the query is too short/target too long" in {
+    val query  = "A" * 10
+    val target = "A" * 12
+    val acc = new CutSiteAccumulator("s1", "chr1", 1000, 2000, minMapQ=20, ref=ref, maxClippedMismatchRate=0, maxClippedLengthDifference=1)
+
+    acc.alignClippedStart(query=query, target=target, queryClippedLength=10).isEmpty shouldBe true
+  }
+
+  it should "not find a match if the mismatch rate is too high" in {
+    val query  = "A" * 10
+    val acc = new CutSiteAccumulator("s1", "chr1", 1000, 2000, minMapQ=20, ref=ref, maxClippedMismatchRate=0.1, maxClippedLengthDifference=0)
+
+    acc.alignClippedStart(query=query, target=query, queryClippedLength=10).value shouldBe 10
+    acc.alignClippedStart(query=query, target="T" + ("A" * 9), queryClippedLength=10).value shouldBe 10
+    acc.alignClippedStart(query=query, target="TT" + ("A" * 8), queryClippedLength=10).isEmpty shouldBe true
+  }
+
+  it should "not find a match if the new clip point is too far from the old clip point" in {
+    val query  = "A" * 10
+    val acc = new CutSiteAccumulator("s1", "chr1", 1000, 2000, minMapQ=20, ref=ref, maxClippedMismatchRate=0.1, maxClippedLengthDifference=2)
+
+    acc.alignClippedStart(query=query, target=query, queryClippedLength=13).isEmpty shouldBe true
+    acc.alignClippedStart(query=query, target=query, queryClippedLength=12).value shouldBe 10
+    acc.alignClippedStart(query=query, target=query, queryClippedLength=11).value shouldBe 10
+    acc.alignClippedStart(query=query, target=query, queryClippedLength=10).value shouldBe 10
+    acc.alignClippedStart(query=query, target=query, queryClippedLength=9).value shouldBe 10
+    acc.alignClippedStart(query=query, target=query, queryClippedLength=8).value shouldBe 10
+    acc.alignClippedStart(query=query, target=query, queryClippedLength=7).value shouldBe 9
+    acc.alignClippedStart(query=query, target=query, queryClippedLength=6).value shouldBe 8 // NB: since we can skip the first two bases of the query AND target respectively
+    acc.alignClippedStart(query=query, target=query, queryClippedLength=5).isEmpty shouldBe true
+  }
+
+  it should "find an exact match with no offset" in {
+    val query  = "A" * 10
+    val target = "A" * 10
+    val acc = new CutSiteAccumulator("s1", "chr1", 1000, 2000, minMapQ=20, ref=ref, maxClippedMismatchRate=0, maxClippedLengthDifference=1)
+
+    acc.alignClippedStart(query=query, target=target, queryClippedLength=10).value shouldBe 10
+  }
+
+  it should "find a match skipping leading bases in the query" in {
+    val query  = "TT" + ("A" * 8)
+    val target = "A" * 10
+    val acc = new CutSiteAccumulator("s1", "chr1", 1000, 2000, minMapQ=20, ref=ref, maxClippedMismatchRate=0, maxClippedLengthDifference=2)
+
+    acc.alignClippedStart(query=query, target=target, queryClippedLength=10).value shouldBe 10
+  }
+
+  it should "find a match skipping leading bases in the target" in {
+    val query  = "A" * 10
+    val target = "TT" + ("A" * 8)
+    val acc = new CutSiteAccumulator("s1", "chr1", 1000, 2000, minMapQ=20, ref=ref, maxClippedMismatchRate=0, maxClippedLengthDifference=2)
+
+    acc.alignClippedStart(query=query, target=target, queryClippedLength=10).value shouldBe 8
+  }
+
+  it should "find a match skipping leading bases in both the query and the target" in {
+    val query  = "GGG" + ("A" * 7)
+    val target = "TTT" + ("A" * 7)
+    val acc = new CutSiteAccumulator("s1", "chr1", 1000, 2000, minMapQ=20, ref=ref, maxClippedMismatchRate=0, maxClippedLengthDifference=3)
+
+    acc.alignClippedStart(query=query, target=target, queryClippedLength=10).value shouldBe 10
+  }
+
+  it should "find a match allowing mismatches" in {
+    val query  = "A" * 10
+    val target = "A" * 10
+    val acc = new CutSiteAccumulator("s1", "chr1", 1000, 2000, minMapQ=20, ref=ref, maxClippedMismatchRate=0.1, maxClippedLengthDifference=0)
+
+    acc.alignClippedStart(query=query, target=target, queryClippedLength=10).value shouldBe 10
+  }
+
+  it should "prefer alignments with a lower mismatch rate" in {
+    val query  = "A" * 10
+    val target = "T" + ("A" * 9)
+    val acc = new CutSiteAccumulator("s1", "chr1", 1000, 2000, minMapQ=20, ref=ref, maxClippedMismatchRate=0.1, maxClippedLengthDifference=1)
+
+    acc.alignClippedStart(query=query, target=target, queryClippedLength=10).value shouldBe 9
   }
   
   "IdentifyCutSites" should "fail if all the min-reads parameters are set to 0" in {
