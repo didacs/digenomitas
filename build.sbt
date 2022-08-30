@@ -42,10 +42,9 @@ lazy val commonSettings = Seq(
   version              := ToolkitVersion,
   testOptions in Test  += Tests.Argument(TestFrameworks.ScalaTest, "-h", Option(System.getenv("TEST_HTML_REPORTS")).getOrElse(htmlReportsDirectory)),
   testOptions in Test  += Tests.Argument("-oDF"),
-  resolvers            += Resolver.jcenterRepo,
   resolvers            += Resolver.sonatypeRepo("public"),
   resolvers            += Resolver.mavenLocal,
-  resolvers            += Resolver.file("ivy-local", new File("~/.ivy2/local")),
+  //resolvers            += Resolver.file("ivy-local", new File("~/.ivy2/local")),
   shellPrompt          := { state => "%s| %s> ".format(GitCommand.prompt.apply(state), version.value) },
   updateOptions        := updateOptions.value.withCachedResolution(true),
   javaOptions in Test += "-Xmx1G",
@@ -59,12 +58,11 @@ lazy val commons = Project(id="commons", base=file("commons"))
   .settings(commonSettings: _*)
   .settings(description := "Utility and base classes used across projects.")
   .settings(libraryDependencies ++= Seq(
-      "org.scalatest"       %% "scalatest"     % "3.0.5" % "test->*" excludeAll ExclusionRule(organization="org.junit", name="junit"),
-      "com.fulcrumgenomics" %% "sopt"          % "0.5.0",
-      "com.fulcrumgenomics" %% "commons"       % "0.5.0",
-      "com.fulcrumgenomics" %% "fgbio"         % "0.6.0" excludeAll(htsjdkAndPicardExcludes:_*),
-      "com.beachape"        %% "enumeratum"    % "1.5.12",
-      "com.github.samtools"  % "htsjdk"        % "2.14.3" excludeAll(htsjdkAndPicardExcludes: _*)
+      "com.fulcrumgenomics" %% "fgbio"     % "1.3.0" excludeAll(htsjdkAndPicardExcludes:_*),
+      "org.scalatest"       %% "scalatest" % "3.0.5" % "test->*" excludeAll ExclusionRule(organization="org.junit", name="junit"),
+      "org.scalactic"       %% "scalactic" % "3.0.8" % "test",
+      "org.pegdown"          % "pegdown"   % "1.6.0" % "test",
+
       ),
   )
   .disablePlugins(AssemblyPlugin)
@@ -85,7 +83,7 @@ lazy val digenome = Project(id="digenome", base=file("digenome"))
   .settings(description := "Tools for analyzing digenome-sequencing data.")
   .settings(commonSettings: _*)
   .settings(libraryDependencies ++= Seq(
-      "com.github.broadinstitute"   % "picard"        % "2.17.4" excludeAll(htsjdkAndPicardExcludes:_*)
+      "com.fulcrumgenomics" %% "fgbio"         % "1.3.0" excludeAll(htsjdkAndPicardExcludes:_*),
   ))
   .dependsOn(commons % "compile->compile;test->test")
   .dependsOn(aligner)

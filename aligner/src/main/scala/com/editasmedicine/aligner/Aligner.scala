@@ -50,8 +50,8 @@ case class GuideAlignment(guide: String,
 
 object Aligner {
   /** EDNAfull matrix extended to also include 'U' as equivalent to T. */
-  private val EdnaFull =
-    """
+  private val EdnaFull = {
+    val string = """
       |    A   T    U    G    C    S   W   R   Y   K   M   B   V   H   D   N
       |A   5  -4   -4   -4   -4   -4   1   1  -4  -4   1  -4  -1  -1  -1  -2
       |T  -4   5    5   -4   -4   -4   1  -4   1   1  -4  -1  -4  -1  -1  -2
@@ -85,7 +85,11 @@ object Aligner {
       |h  12  12   12  -12   12   -3  -1  -3  -1  -3  -1  -2  -2  -1  -2  -1
       |d  12  12   12   12  -12   -3  -1  -1  -3  -1  -3  -2  -2  -2  -1  -1
       |n  12  12   12   12   12   -1  -1  -1  -1  -1  -1  -1  -1  -1  -1  -1
-    """.stripMargin.lines.map(_.trim).filter(_.nonEmpty).toSeq
+    """.stripMargin
+    // Be explicit about using StringOps, in case Java 11 is used where String.lines exists
+    val lines = (string: scala.collection.immutable.StringOps).lines
+    lines.map(_.trim).filter(_.nonEmpty).toSeq
+  }
 
   /** Penalty charged to open a gap (extend penalty is also charged for first base in the gap). */
   val DefaultGapOpenPenalty: Int = 2
@@ -122,7 +126,7 @@ object Aligner {
 
   /** Returns the score from the EDNA full matrix, or throws an exception if invalid bases are passed. */
   def score(query: Byte, target: Byte): Int = {
-    val x =this.matrix(toOffset(query), toOffset(target))
+    val x = this.matrix(toOffset(query), toOffset(target))
     if (x == Int.MinValue) throw new IllegalArgumentException(s"${query.toChar}/${target.toChar} not present in scoring matrix.")
     else x
   }
@@ -141,7 +145,20 @@ class Aligner(refFile: ReferenceSequenceFile,
   require(refFile.isIndexed, s"Cannot work with a non-indexed reference: $refFile")
 
   // The actual aligner
-  private val nw = new com.fulcrumgenomics.alignment.Aligner(Aligner.score, gapOpen= -abs(gapOpen), gapExtend= -abs(gapExtend), mode=Glocal)
+  private val nw = {
+    val scorer = new com.fulcrumgenomics.alignment.Aligner.AlignmentScorer {
+      private val extend        = -abs(gapExtend)
+      private val openAndExtend = -abs(gapOpen) + extend
+
+      override final def scorePairing(queryBase: Byte, targetBase: Byte): Int = Aligner.score(queryBase, targetBase)
+
+      override final def scoreGap(query: Array[Byte], target: Array[Byte], qOffset: Int, tOffset: Int, inQuery: Boolean, extend: Boolean): Int = {
+        if (extend) this.extend else this.openAndExtend
+      }
+    }
+
+    new com.fulcrumgenomics.alignment.Aligner(scorer=scorer, mode=Glocal)
+  }
 
   /**
     * Aligns a guide sequence to a region around the given position.  Attempts alignment on both the F and R
@@ -168,11 +185,11 @@ class Aligner(refFile: ReferenceSequenceFile,
     val fwd = this.nw.align(query, targetFwd)
     val rev = this.nw.align(query, targetRev)
     val best = if (fwd.score >= rev.score) fwd else rev
-    val (start, end, strand) =
+    val (start: Int, end: Int, strand: Char) =
       if (best eq fwd) (regionStart + fwd.targetStart - 1, regionStart + fwd.targetEnd - 1, 'F')
       else             (regionEnd - rev.targetEnd + 1,     regionEnd - rev.targetStart + 1, 'R')
 
-    val Seq(paddedGuide, alignString, paddedTarget) = best.paddedString()
+    val Seq(paddedGuide: String, alignString: String, paddedTarget: String) = best.paddedString()
 
     // Regenerate the align string to account for Us
     val buffer = new Array[Byte](paddedGuide.length)

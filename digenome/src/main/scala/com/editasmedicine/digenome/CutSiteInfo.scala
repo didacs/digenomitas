@@ -21,6 +21,8 @@ case class CutSiteInfo(digenomitas_version: String = getClass.getPackage.getImpl
                        low_mapq_fraction: Double,
                        forward_starts: Int,
                        reverse_starts: Int,
+                       forward_clipped_starts: Int,
+                       reverse_clipped_starts: Int,
                        read_depth: Int,
                        read_fraction_cut: Double,
                        read_score: Double,

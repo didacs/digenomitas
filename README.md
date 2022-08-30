@@ -117,39 +117,41 @@ java -Xmx8g -jar digenome/target/scala-2.12/digenome.jar IdentifyCutSites \
 
 The output file generated is a tab-delimited text file with the following columns:
 
-|Column Name|Description|Example Value(s)|
-|-----------|-----------|----------------|
-|digenomitas\_version   |The version of the software that produced the results.|20181002-bd34ba2-dirty|
-|sample                 |The name of the smaple used int he experiment (taken from the BAM file header).|EMX1-example-sample|
-|guide                  |The guide sequenced used in the experiment.|GTTCTGTCCTCAGTAAAAGGTA|
-|enzyme                 |The enzyme used in the experiment.|SauCas9|
-|expected\_overhang     |The expected overhang of the enzyme (as passed to `--overhang` when running analysis.|0|
-|window\_size           |The `window-size` option given to the tool when running the analysis.|5|
-|mapq\_cutoff           |The mapq cutoff given to the tool when running the analysis.|30|
-|chrom                  |The chromosome on which the putative cut site resides.|chr12|
-|pos                    |The most likely position of the cut site.|88102160|
-|strand                 |The strand of the cut site.|F|
-|low\_mapq\_fraction    |The fraction of reads supporting the cut site that had low mapping quality.|0|
-|forward\_starts        |The number of F strand reads supporting the cut site.|50|
-|reverse\_starts        |The number of R strand reads supporting the cut site.|53|
-|read\_depth            |The total number of reads at the cut site (including spanning reads).|104|
-|read\_fraction\_cut    |The fraction of reads at the cut site that support the cut site (i.e. do not span it).|0.990385|
-|read\_score            |A score representing confidence in the cut site. Scales with `read_depth` and `read_fraction_cut`.|132.129971|
-|template\_depth        |The number of templates (aka inserts) at the cut site (including spanning templates).|105|
-|template\_fraction\_cut|The fraction of templates that appear to be cut at the cut site.|0.980952|
-|template\_score        |A template-based score representing confidence in the cut site. Scales with `template_depth` and `template_fraction_cut`.|145.65576|
-|median\_overhang       |The median overhang of reads at the cut site.|0|
-|overhang\_distribution |The distribution of read overhangs at the cut site. By default contains five semi-colon separated values that represent the count of reas with overhang = -2, -1, 0, 1, 2.|0;2;48;0;0|
-|neighborhood\_ratio    |A measure of whether read-starts are suppressed in the neighborhood surrounding the cut site.  When there are no read starts in the area around a cut site this will be ~0, when there are the expected number of read starts for the observed coverage and random read start positions, the value will be ~1.  0 or close to 0 is expected for a true cut site.|0|
-|aln\_start             |The 1-based start position of the best alignment of the guide+pam at or near the cut site.|88102142|
-|aln\_end               |The 1-based end position of the best alignment of the guide+pam at or near the cut site.|88102170|
-|aln\_strand            |The strand of the genome on which the best alignment of the guide+pam resides.|F|
-|aln\_padded\_guide     |The padded guide sequence at the alignment position.|`GTTCTGTCCTCAGTAAAAGGTAnngrrn`|
-|aln\_alignment\_string |A string representing the pairwise alignment of the guide+pam to the reference.|`||||||||||||||||||||||||||||`|
-|aln\_padded\_target    |The padded sequence of the reference at the alignment position.|`GTTCTGTCCTCAGTAAAAGGTATAGAGT`|
-|aln\_mismatches        |The number of mismatches in the alignment.|0|
-|aln\_gap\_bases        |The number of gapped bases in the alignment (i.e. a gap of length 2 is counted as 2).|0|
-|aln\_mm\_and\_gaps     |The sum of `aln_mismatches` and `aln_gap_bases`.|0|
+| Column Name             |Description|Example Value(s)|
+|-------------------------|-----------|----------------|
+| digenomitas\_version    |The version of the software that produced the results.|20181002-bd34ba2-dirty|
+| sample                  |The name of the smaple used int he experiment (taken from the BAM file header).|EMX1-example-sample|
+| guide                   |The guide sequenced used in the experiment.|GTTCTGTCCTCAGTAAAAGGTA|
+| enzyme                  |The enzyme used in the experiment.|SauCas9|
+| expected\_overhang      |The expected overhang of the enzyme (as passed to `--overhang` when running analysis.|0|
+| window\_size            |The `window-size` option given to the tool when running the analysis.|5|
+| mapq\_cutoff            |The mapq cutoff given to the tool when running the analysis.|30|
+| chrom                   |The chromosome on which the putative cut site resides.|chr12|
+| pos                     |The most likely position of the cut site.|88102160|
+| strand                  |The strand of the cut site.|F|
+| low\_mapq\_fraction     |The fraction of reads supporting the cut site that had low mapping quality.|0|
+| forward\_starts         |The number of F strand reads supporting the cut site.|50|
+| reverse\_starts         |The number of R strand reads supporting the cut site.|53|
+| forward\_clipped_starts |The number of F strand reads supporting the cut site that contained clipping and one of the allowable start sequences.|37|
+| reverse\_clipped_starts |The number of R strand reads supporting the cut site that contained clipping and one of the allowable start sequences.|24|
+| read\_depth             |The total number of reads at the cut site (including spanning reads).|104|
+| read\_fraction\_cut     |The fraction of reads at the cut site that support the cut site (i.e. do not span it).|0.990385|
+| read\_score             |A score representing confidence in the cut site. Scales with `read_depth` and `read_fraction_cut`.|132.129971|
+| template\_depth         |The number of templates (aka inserts) at the cut site (including spanning templates).|105|
+| template\_fraction\_cut |The fraction of templates that appear to be cut at the cut site.|0.980952|
+| template\_score         |A template-based score representing confidence in the cut site. Scales with `template_depth` and `template_fraction_cut`.|145.65576|
+| median\_overhang        |The median overhang of reads at the cut site.|0|
+| overhang\_distribution  |The distribution of read overhangs at the cut site. By default contains five semi-colon separated values that represent the count of reas with overhang = -2, -1, 0, 1, 2.|0;2;48;0;0|
+| neighborhood\_ratio     |A measure of whether read-starts are suppressed in the neighborhood surrounding the cut site.  When there are no read starts in the area around a cut site this will be ~0, when there are the expected number of read starts for the observed coverage and random read start positions, the value will be ~1.  0 or close to 0 is expected for a true cut site.|0|
+| aln\_start              |The 1-based start position of the best alignment of the guide+pam at or near the cut site.|88102142|
+| aln\_end                |The 1-based end position of the best alignment of the guide+pam at or near the cut site.|88102170|
+| aln\_strand             |The strand of the genome on which the best alignment of the guide+pam resides.|F|
+| aln\_padded\_guide      |The padded guide sequence at the alignment position.|`GTTCTGTCCTCAGTAAAAGGTAnngrrn`|
+| aln\_alignment\_string  |A string representing the pairwise alignment of the guide+pam to the reference.|`||||||||||||||||||||||||||||`|
+| aln\_padded\_target     |The padded sequence of the reference at the alignment position.|`GTTCTGTCCTCAGTAAAAGGTATAGAGT`|
+| aln\_mismatches         |The number of mismatches in the alignment.|0|
+| aln\_gap\_bases         |The number of gapped bases in the alignment (i.e. a gap of length 2 is counted as 2).|0|
+| aln\_mm\_and\_gaps      |The sum of `aln_mismatches` and `aln_gap_bases`.|0|
 
 The padded alignment strings are intended to be concatenated with line breaks to help visualize the alignment.  The following is an example of a more complicated alignment represented in the same format, with three mismatches and one bulge/indel.
 

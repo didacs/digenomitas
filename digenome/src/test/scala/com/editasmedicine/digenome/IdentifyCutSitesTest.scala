@@ -49,7 +49,8 @@ class IdentifyCutSitesTest extends UnitSpec {
       .add("N", 1000) // 3000
     val path = builder.toTempFile()
     val ref = ReferenceSequenceFileFactory.getReferenceSequenceFile(path)
-    (path, ref, ref.getSequenceDictionary)
+    import com.fulcrumgenomics.fasta.Converters.FromSAMSequenceDictionary
+    (path, ref, ref.getSequenceDictionary.fromSam)
   }
 
   /** Generates a SamBuilder for building up SamRecords for testing. */
@@ -278,6 +279,60 @@ class IdentifyCutSitesTest extends UnitSpec {
     acc ++= builder.addPair(start1=1200, start2=1200, mapq1=20, mapq2=20)
     acc.fStarts(1200) shouldBe 1
     acc.rStarts(1219) shouldBe 1
+  }
+
+  it should "count reads that are clipped and start with an allowable sequences" in {
+    val builder = newBuilder(readLength=20)
+
+    // R1s
+    // clipped length diff is 0, sequence matches, so count as clipped F
+    builder.addPair(start1=1100, start2=1100, bases1="GATTACA" + "A"*13, bases2="GATTACA" + "A"*13, cigar1="7S13M", cigar2="13M7S")
+    // one fewer base clipped, sequence matches, so count as clipped F
+    builder.addPair(start1=1099, start2=1099, bases1="GATTACA" + "A"*13, bases2="GATTACA" + "A"*13, cigar1="6S14M", cigar2="14M6S")
+    // one more base clipped, sequence matches, so count as clipped F
+    builder.addPair(start1=1100, start2=1100, bases1="GATTACA" + "A"*13, bases2="GATTACA" + "A"*13, cigar1="8S12M", cigar2="12M8S")
+    // too few bases clipped, sequence matches, so do not count as clipped F
+    builder.addPair(start1=1100, start2=1100, bases1="GATTACA" + "A"*13, bases2="GATTACA" + "A"*13, cigar1="5S15M", cigar2="15M5S")
+    // too many bases clipped, sequence matches, so do not count as clipped F
+    builder.addPair(start1=1100, start2=1100, bases1="GATTACA" + "A"*13, bases2="GATTACA" + "A"*13, cigar1="9S11M", cigar2="11M9S")
+    // clipped length diff is 0, sequence does not match, so do not count as clipped F
+    builder.addPair(start1=1100, start2=1100, bases1="GATTACC" + "A"*13, bases2="GATTACA" + "A"*13, cigar1="7S13M", cigar2="13M7S")
+
+    // R2s
+    // clipped length diff is 0, sequence matches, so count as clipped R
+    builder.addPair(start1=1100, start2=1100, bases1="TGTAATC" + "A"*13, bases2="A"*13 + "TGTAATC", cigar1="7S13M", cigar2="13M7S")
+
+    val acc = new CutSiteAccumulator("s1", "chr1", 1000, 2000, minMapQ=20, ref=ref,
+      clippedStartSequences=Seq("GATTACA"),
+      maxClippedLengthDifference=1
+    )
+    acc ++= builder
+
+    acc.totalFwdStarts shouldBe 3
+    acc.totalRevStarts shouldBe 1
+    acc.totalFwdClippedStarts shouldBe 3
+    acc.totalRevClippedStarts shouldBe 1
+    Range.inclusive(1000, 2000).foreach { pos =>
+      if (pos == 1100) {
+        acc.readDepth(pos)       shouldBe 14
+        acc.templateDepth(pos)   shouldBe 7
+        acc.fStarts(pos)         shouldBe 3
+        acc.rStarts(pos)         shouldBe 0
+        acc.fClippedStarts(pos)  shouldBe 3
+        acc.rClippedStarts(pos)  shouldBe 0
+      } else if (pos == 1112) {
+        // NB: some reads do not extend fully to this position, so depth is less than depth at position 1100
+        acc.readDepth(pos)       shouldBe 10
+        acc.templateDepth(pos)   shouldBe 5
+        acc.fStarts(pos)         shouldBe 0
+        acc.rStarts(pos)         shouldBe 1
+        acc.fClippedStarts(pos)  shouldBe 0
+        acc.rClippedStarts(pos)  shouldBe 1
+      } else {
+        acc.fClippedStarts(pos)  shouldBe 0
+        acc.rClippedStarts(pos)  shouldBe 0
+        }
+    }
   }
 
 
