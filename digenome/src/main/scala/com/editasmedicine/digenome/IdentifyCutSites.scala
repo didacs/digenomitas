@@ -476,7 +476,7 @@ object IdentifyCutSites {
     /** Turn a putative p-value into a score, accounting for the fact that the p-value may have underflowed. */
     private def score(pvalue: Double): Double = {
       require(pvalue >= 0 && pvalue <= 1, s"pvalue $pvalue is not in range 0-1.")
-      if (pvalue == 0) - math.floor(-log10(Double.MinPositiveValue))
+      if (pvalue == 0) math.ceil(-log10(Double.MinPositiveValue))
       else -log10(pvalue)
     }
 
